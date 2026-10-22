@@ -4,9 +4,17 @@ Agent skills for building and maintaining [Meltano](https://meltano.com) and [Si
 
 ## Install (Claude Code)
 
+In a session:
+
 ```
 /plugin marketplace add meltano/agent-skills
 /plugin install singer@meltano
+```
+
+From a terminal, in one command:
+
+```
+claude plugin install singer --marketplace meltano/agent-skills
 ```
 
 ## Skills
