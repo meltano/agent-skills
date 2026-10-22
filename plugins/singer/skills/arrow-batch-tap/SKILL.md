@@ -24,7 +24,7 @@ These hold for every tap, whatever its framework:
 - **Log-based falls back to RECORD.** CDC (binlog, WAL, change streams) and the initial log-based snapshot keep emitting RECORD messages. Only FULL_TABLE and INCREMENTAL streams use BATCH.
 - **One BATCH message per file, then STATE.** Write the file, emit its BATCH message, advance the bookmark to the file's last replication key value, and emit STATE. An interrupted sync then resumes from the last written file, and the target starts loading before extraction ends.
 - **Columnar type fixes.** Fix type mismatches in the source query (a `CAST`) or with `pyarrow.compute` on whole columns, so the Arrow type matches what the stream's JSON Schema promises and what RECORD mode emits.
-- **Native chunking is rechunked.** Driver chunks rarely match `batch_size`; slice and buffer them into files of exactly `batch_size` rows (the last may be smaller).
+- **Native chunking is rechunked.** Driver chunks rarely match `batch_size`; slice and buffer them into files of exactly `batch_size` rows (the last may be smaller). The SDK's `get_record_batches` hook does this for you.
 
 ## Steps
 
@@ -51,7 +51,7 @@ These hold for every tap, whatever its framework:
 4. **Implement** following the branch reference.
 
 5. **Test.** Cover:
-   - rechunking: buffering, exact `batch_size` boundaries, an empty source
+   - rechunking: buffering, exact `batch_size` boundaries, an empty source (skip if the SDK's `get_record_batches` hook does the rechunking)
    - `batch_config` parsing, including a partial config (no `encoding`)
    - an integration test against the real source (testcontainers) that reads every file back with `pyarrow.ipc.open_file` and compares it to RECORD mode output for the same rows
    - resuming from the STATE emitted after a file
