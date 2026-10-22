@@ -1,0 +1,16 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "meltano",
+  "description": "Agent skills for building and maintaining Meltano and Singer connectors.",
+  "owner": {
+    "name": "Meltano"
+  },
+  "plugins": [
+    {
+      "name": "singer",
+      "description": "Skills for Singer taps and targets, such as adding Arrow BATCH support to a tap.",
+      "source": "./plugins/singer",
+      "category": "development"
+    }
+  ]
+}

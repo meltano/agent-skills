@@ -1,0 +1,10 @@
+{
+  "name": "singer",
+  "version": "0.1.0",
+  "description": "Skills for Singer taps and targets, such as adding Arrow BATCH support to a tap.",
+  "author": {
+    "name": "Meltano"
+  },
+  "repository": "https://github.com/meltano/agent-skills",
+  "keywords": ["singer", "meltano", "arrow", "etl"]
+}
