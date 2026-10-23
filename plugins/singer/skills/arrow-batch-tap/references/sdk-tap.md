@@ -4,14 +4,14 @@ The SDK owns the BATCH plumbing: `Stream.sync()` calls `get_batch_config()`, and
 
 Pick the path by SDK version:
 
-- `singer-sdk>=0.55.0b5` → **native hook**. Prefer it: bump the tap's pin if you can. Because it's a pre-release, write the specifier with the pre-release version (`singer-sdk>=0.55.0b5`), so pip and uv will resolve it.
+- `singer-sdk>=0.55.0b5` → **native hook**. Prefer it: bump the tap's pin if you can. Because it's a pre-release, write the specifier with the pre-release version (`singer-sdk>=0.55.0b5`; 0.55.0b7 or later to get `arrow.json` decoding in targets), so pip and uv will resolve it. Right after a release, uv's cached index may not know it yet: `uv lock --refresh-package singer-sdk`. CI jobs that install the tap with Meltano resolve dependencies fresh from PyPI, so they can fail for a few minutes after a release; rerun them.
 - Older SDKs → **custom `get_batches`**.
 
 Either way, add `pyarrow` as a direct dependency. The SDK only pulls it in through its `parquet` extra.
 
 ## Native hook
 
-`Stream.get_record_batches` ([meltano/sdk#3829](https://github.com/meltano/sdk/pull/3829)). Implement one method and let the SDK do the rest:
+`Stream.get_record_batches` ([meltano/sdk#3829](https://github.com/meltano/sdk/pull/3829)). Implement one method and let the SDK do the rest. [tap-mongodb](https://github.com/MeltanoLabs/tap-mongodb) is the reference: `get_record_batches` and `get_batch_config` in `tap_mongodb/streams.py`, and the decoding in `tap_mongodb/arrow.py`.
 
 ```python
 class MyStream(Stream):
@@ -37,7 +37,7 @@ Yield or return `pa.RecordBatch` and `pa.Table` objects, in any chunk sizes. The
 What stays the tap's job:
 
 - **Order.** With `is_sorted = True`, the SDK only checks order between files, not inside one, so the source query must sort by the replication key.
-- **Types.** Cast columns to match the stream schema before yielding (see the type map step in `SKILL.md`).
+- **Types.** Cast columns to match the stream schema before yielding (see the type map step in `SKILL.md`). Use `pa.json_()` for free-form values: the SDK's target-side reader decodes it into what RECORD mode sends.
 - **What's skipped.** Stream maps and `post_process` aren't applied to Arrow tables.
 - **Fallbacks.** Streams with child streams, and deselected parents synced for their children, use `get_records()`, because only records produce child contexts. Return `None` for every partition to use `get_records()` too.
 
@@ -57,11 +57,12 @@ For SDKs older than 0.55.0b5. Use [tap-snowflake](https://github.com/MeltanoLabs
 
 ## Log-based fallback (both paths)
 
-Once `get_batch_config()` returns a config, the SDK routes the whole stream through BATCH. Return `None` from it for log-based streams so they keep emitting RECORD messages:
+Once `get_batch_config()` returns a config, the SDK routes the whole stream through BATCH. Return `None` from it for log-based streams with the Arrow format, so they keep emitting RECORD messages. Leave other formats alone: users may already batch change streams as JSONL or Parquet.
 
 ```python
 def get_batch_config(self, config):
-    if self.replication_method == "LOG_BASED":
+    raw = config.get("batch_config") or {}
+    if (raw.get("encoding") or {}).get("format") == "arrow" and self.replication_method == "LOG_BASED":
         return None
     return super().get_batch_config(config)
 ```

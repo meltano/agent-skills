@@ -34,9 +34,9 @@ These hold for every tap, whatever its framework:
 
    Done when you have read the reference for the tap's branch.
 
-2. **Choose the Arrow source.** Find how the source's driver yields Arrow, in order of preference: a native Arrow API of the existing client (reuses the connection, no new driver); an [ADBC](https://arrow.apache.org/adbc/) driver through `adbc-driver-manager`, with the driver installed by [`dbc`](https://docs.adbc-drivers.org/) and its install documented in the README; a source-specific Arrow library. Check that the library ships wheels for every Python version the tap supports, and note any `pyarrow` pin it carries.
+2. **Choose the Arrow source.** Find how the source's driver yields Arrow, in order of preference: a native Arrow API of the existing client (reuses the connection, no new driver); an [ADBC](https://arrow.apache.org/adbc/) driver through `adbc-driver-manager`, with the driver installed by [`dbc`](https://docs.adbc-drivers.org/) and its install documented in the README; a source-specific Arrow library. Check that the library ships wheels for every Python version the tap supports, and note any `pyarrow` pin it carries. Import it next to the `pyarrow` version you'll install: Cython warnings like `pyarrow.lib.Array size changed, may indicate binary incompatibility` mean its wheels were built against another `pyarrow`, so pin the one they match (pymongoarrow 1.15.0 needs `pyarrow==25.0.0`, although it allows 25.0.x).
 
-   Done when you can name the call that yields Arrow batches, and every Python version in the tap's classifiers has a wheel.
+   Done when you can name the call that yields Arrow batches, every Python version in the tap's classifiers has a wheel, and importing it prints no binary-incompatibility warnings.
 
 3. **Map types.** For every column type in the source, compare the Arrow type the driver yields with the stream's JSON Schema and with the value RECORD mode emits. Known mismatches from earlier taps:
    - integer-encoded booleans (MySQL `TINYINT(1)`) → `pa.bool_()`
@@ -45,16 +45,22 @@ These hold for every tap, whatever its framework:
    - identifier casing (Snowflake returns unquoted identifiers uppercased) → label columns with the schema property names
    - timestamp precision and time zone → match RECORD mode
    - driver extension types (e.g. PyMongoArrow's `ObjectId`, `Decimal128`) → plain Arrow types any target can read
+   - free-form values (sub-documents, JSON columns, fields with mixed types) → Arrow's canonical JSON type, `pa.json_()`, holding the JSON text RECORD mode would emit. SDK targets (singer-sdk 0.55.0b7+) decode it back into the same values.
 
-   Done when every source type has a recorded Arrow type and a cast where it differs.
+   For schema-less sources, don't let the driver infer types: PyMongoArrow fixes a field's type by its first value and silently turns later values of another type into nulls. Scan the types up front and decode with an explicit schema. Inside an Arrow struct, a missing field and a null one are both null; document that, since RECORD mode leaves missing fields out.
+
+   **Check how strict the explicit schema really is.** Decode a value of every source type into every Arrow type you use, and list which mismatches raise and which are coerced silently: pymongoarrow truncates a double in an `int64` column (`1.5` becomes `1`) and turns booleans into `1`/`1.0`. Silent coercions need their own check, e.g. a server-side query per batch for those types.
+
+   Done when every source type has a recorded Arrow type and a cast where it differs, and every silent coercion has a check.
 
 4. **Implement** following the branch reference.
 
 5. **Test.** Cover:
    - rechunking: buffering, exact `batch_size` boundaries, an empty source (skip if the SDK's `get_record_batches` hook does the rechunking)
    - `batch_config` parsing, including a partial config (no `encoding`)
-   - an integration test against the real source (testcontainers) that reads every file back with `pyarrow.ipc.open_file` and compares it to RECORD mode output for the same rows
+   - an integration test against the real source (testcontainers or a CI service) that reads every file back through `singer_sdk.contrib.batch_decoder_arrow.ArrowReader`, the reader SDK targets use, and compares it to RECORD mode output for the same rows, covering every source type
    - resuming from the STATE emitted after a file
+   - a type changing during the sync (update a row between the type check and extraction) failing loudly instead of being coerced
    - log-based streams still emitting RECORD messages
 
    Done when each bullet has a passing test.
@@ -69,6 +75,7 @@ These hold for every tap, whatever its framework:
 
 | Tap | Framework | Arrow source | Code |
 |---|---|---|---|
+| [tap-mongodb](https://github.com/MeltanoLabs/tap-mongodb) | Singer SDK, native hook | PyMongoArrow on `find_raw_batches` | `tap_mongodb/streams.py` (`get_record_batches`, `get_batch_config`), `arrow.py` |
 | [tap-snowflake](https://github.com/MeltanoLabs/tap-snowflake) | Singer SDK | `fetch_arrow_batches()` | `tap_snowflake/client.py` (`get_batches`), `batch.py` |
 | [meltano-tap-postgres](https://github.com/meltano/meltano-tap-postgres) | singer-python | ADBC | `tap_postgres/batch.py`, `adbc.py`, `sqlgen.py` |
 | [pipelinewise-tap-mysql](https://github.com/Matatika/pipelinewise-tap-mysql) | pipelinewise-singer-python | ADBC via `dbc` | `tap_mysql/adbc.py`, `sync_strategies/common.py` |
